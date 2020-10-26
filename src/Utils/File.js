@@ -35,6 +35,12 @@ import MessageStore from '../Stores/MessageStore';
 import UserStore from '../Stores/UserStore';
 import TdLibController from '../Controllers/TdLibController';
 
+export function supportsStreaming() {
+    const { streaming } = TdLibController;
+
+    return streaming && hasServiceWorker();
+}
+
 export function hasServiceWorker() {
     if ('serviceWorker' in navigator) {
         const { controller } = navigator.serviceWorker;
@@ -737,7 +743,7 @@ function loadStickerContent(store, sticker, message, useFileSize = true) {
         store,
         file,
         null,
-        () => FileStore.updateStickerBlob(chatId, messageId, id),
+        () => FileStore.updateStickerBlob(chatId, messageId, id, sticker),
         () => {
             if (!useFileSize || (size && size < PRELOAD_STICKER_SIZE)) {
                 FileStore.getRemoteFile(id, FILE_PRIORITY, message || sticker);
@@ -768,7 +774,7 @@ function loadStickerThumbnailContent(store, sticker, message) {
         store,
         file,
         null,
-        () => FileStore.updateStickerThumbnailBlob(chatId, messageId, id),
+        () => FileStore.updateStickerThumbnailBlob(chatId, messageId, id, sticker),
         () => FileStore.getRemoteFile(id, THUMBNAIL_PRIORITY, message || sticker)
     );
 
@@ -802,7 +808,9 @@ function loadVideoContent(store, video, message, useFileSize = true) {
     const blob = FileStore.getBlob(id);
     if (blob) return;
 
-    if (supports_streaming && TdLibController.streaming && hasServiceWorker()) return;
+    if (supports_streaming && supportsStreaming()) {
+        return;
+    }
 
     const chatId = message ? message.chat_id : 0;
     const messageId = message ? message.id : 0;
@@ -1265,82 +1273,64 @@ function download(file, obj, callback) {
 }
 
 export function getViewerMinithumbnail(media) {
-    if (!media) return [0, 0, null];
+    if (!media) return null;
 
     switch (media['@type']) {
         case 'animation': {
-            const { minithumbnail } = media;
-            if (minithumbnail) {
-                return [minithumbnail.width, minithumbnail.height, minithumbnail];
-            }
-            break;
+            return media.minithumbnail;
         }
         case 'document': {
-            const { minithumbnail } = media;
-            if (minithumbnail) {
-                return [minithumbnail.width, minithumbnail.height, minithumbnail];
-            }
-            break;
+            return media.minithumbnail;
         }
         case 'photo': {
-            const { minithumbnail } = media;
-            if (minithumbnail) {
-                return [minithumbnail.width, minithumbnail.height, minithumbnail];
-            }
-            break;
+            return media.minithumbnail;
         }
         case 'video': {
-            const { minithumbnail } = media;
-            if (minithumbnail) {
-                return [minithumbnail.width, minithumbnail.height, minithumbnail];
-            }
-            break;
+            return media.minithumbnail;
+        }
+        case 'videoNote': {
+            return media.minithumbnail;
         }
         default: {
-            return [0, 0, null];
+            return null;
         }
     }
-
-    return [0, 0, null];
 }
 
 function getViewerThumbnail(media) {
-    if (!media) return [0, 0, null];
+    if (!media) return null;
 
     switch (media['@type']) {
         case 'animation': {
-            const { thumbnail } = media;
-            if (thumbnail) {
-                return [thumbnail.width, thumbnail.height, thumbnail.file];
-            }
-            break;
+            return media.thumbnail;
+        }
+        case 'audio': {
+            return media.album_cover_thumbnail;
         }
         case 'document': {
-            const { thumbnail } = media;
-            if (thumbnail) {
-                return [thumbnail.width, thumbnail.height, thumbnail.file];
-            }
-            break;
+            return media.thumbnail;
         }
         case 'photo': {
-            return getViewerFile(media, PHOTO_SIZE);
+            const [width, height, file] = getViewerFile(media, PHOTO_SIZE);
+
+            return { '@type': 'thumbnail', format: { '@type': 'thumbnailFormatJpeg' }, file, width, height };
+        }
+        case 'sticker': {
+            return media.thumbnail;
         }
         case 'video': {
-            const { thumbnail } = media;
-            if (thumbnail) {
-                return [thumbnail.width, thumbnail.height, thumbnail.file];
-            }
-            break;
+            return media.thumbnail;
+        }
+        case 'videoNote': {
+            return media.thumbnail;
         }
         default: {
-            return [0, 0, null];
+            return null;
         }
     }
-
-    return [0, 0, null];
 }
 
-export function getMediaMiniPreview(chatId, messageId) {
+export function getMediaMinithumbnail(chatId, messageId) {
     const message = MessageStore.get(chatId, messageId);
     if (!message) return [0, 0, null];
 
@@ -1414,33 +1404,37 @@ export function getMediaMiniPreview(chatId, messageId) {
     return [0, 0, null];
 }
 
-function getMediaPreviewFile(chatId, messageId) {
+export function getMediaThumbnail(chatId, messageId) {
     const message = MessageStore.get(chatId, messageId);
-    if (!message) return [0, 0, null];
+    if (!message) return null;
 
     const { content } = message;
-    if (!content) return [0, 0, null];
+    if (!content) return null;
 
     switch (content['@type']) {
         case 'messageAnimation': {
             const { animation } = content;
             if (animation && animation.thumbnail) {
-                return [animation.thumbnail.width, animation.thumbnail.height, animation.thumbnail.file];
+                return animation.thumbnail;
             }
             break;
         }
         case 'messageChatChangePhoto': {
-            return getMediaFile(chatId, messageId, PHOTO_SIZE);
+            const [width, height, file] = getMediaFile(chatId, messageId, PHOTO_SIZE);
+
+            return { '@type': 'thumbnail', format: 'thumbnailFormatJpeg', file, width, height };
         }
         case 'messageDocument': {
             const { document } = content;
-            if (document) {
-                return [50, 50, document.document];
+            if (document.thumbnail) {
+                return document.thumbnail;
             }
             break;
         }
         case 'messagePhoto': {
-            return getMediaFile(chatId, messageId, PHOTO_SIZE);
+            const [width, height, file] = getMediaFile(chatId, messageId, PHOTO_SIZE);
+
+            return { '@type': 'thumbnail', format: 'thumbnailFormatJpeg', file, width, height };
         }
         case 'messageText': {
             const { web_page } = content;
@@ -1448,19 +1442,21 @@ function getMediaPreviewFile(chatId, messageId) {
                 const { animation, document, video, photo } = web_page;
 
                 if (animation && animation.thumbnail) {
-                    return [animation.thumbnail.width, animation.thumbnail.height, animation.thumbnail.file];
+                    return animation.thumbnail;
                 }
 
-                if (document) {
-                    return [50, 50, document.document];
+                if (document && document.thumbnail) {
+                    return document.thumbnail;
                 }
 
                 if (video && video.thumbnail) {
-                    return [video.thumbnail.width, video.thumbnail.height, video.thumbnail.file];
+                    return video.thumbnail;
                 }
 
                 if (photo) {
-                    return getMediaFile(chatId, messageId, PHOTO_SIZE);
+                    const [width, height, file] = getMediaFile(chatId, messageId, PHOTO_SIZE);
+
+                    return { '@type': 'thumbnail', format: 'thumbnailFormatJpeg', file, width, height };
                 }
             }
             break;
@@ -1468,16 +1464,16 @@ function getMediaPreviewFile(chatId, messageId) {
         case 'messageVideo': {
             const { video } = content;
             if (video && video.thumbnail) {
-                return [video.thumbnail.width, video.thumbnail.height, video.thumbnail.file];
+                return video.thumbnail;
             }
             break;
         }
         default: {
-            return [0, 0, null];
+            return null;
         }
     }
 
-    return [0, 0, null];
+    return null;
 }
 
 function getViewerFile(media, size) {
@@ -1498,7 +1494,7 @@ function getViewerFile(media, size) {
             return [50, 50, document.document, document.mime_type, false];
         }
         case 'video': {
-            return [media.width, media.height, media.video, media.mime_type, media.supports_streaming && TdLibController.streaming && hasServiceWorker()];
+            return [media.width, media.height, media.video, media.mime_type, media.supports_streaming && supportsStreaming()];
         }
         default: {
         }
@@ -1568,6 +1564,11 @@ function getMediaFile(chatId, messageId, size) {
                     return [50, 50, file, mime_type, false];
                 }
 
+                if (video) {
+                    const { width, height, video: file, mime_type, supports_streaming } = video;
+                    return [width, height, file, mime_type, supports_streaming && supportsStreaming()];
+                }
+
                 if (photo) {
                     const photoSize = getSize(photo.sizes, size);
                     if (photoSize) {
@@ -1576,11 +1577,6 @@ function getMediaFile(chatId, messageId, size) {
                     }
                     break;
                 }
-
-                if (video) {
-                    const { width, height, video: file, mime_type, supports_streaming } = video;
-                    return [width, height, file, mime_type, supports_streaming && TdLibController.streaming && hasServiceWorker()];
-                }
             }
             break;
         }
@@ -1588,7 +1584,7 @@ function getMediaFile(chatId, messageId, size) {
             const { video } = content;
             if (video) {
                 const { width, height, video: file, mime_type, supports_streaming } = video;
-                return [width, height, file, mime_type, supports_streaming && TdLibController.streaming && hasServiceWorker()];
+                return [width, height, file, mime_type, supports_streaming && supportsStreaming()];
             }
             break;
         }
@@ -2095,8 +2091,18 @@ function getSrc(file) {
     return FileStore.getBlobUrl(blob) || '';
 }
 
+export function getPngSrc(file) {
+    const blob = getPngBlob(file);
+
+    return FileStore.getBlobUrl(blob) || '';
+}
+
 function getBlob(file) {
     return file ? FileStore.getBlob(file.id) || file.blob : null;
+}
+
+function getPngBlob(file) {
+    return file ? FileStore.getPngBlob(file.id) || file.blob : null;
 }
 
 function getDownloadedSize(file) {
@@ -2351,6 +2357,13 @@ function loadPageBlockContent(store, b) {
             loadPageBlockContent(store, caption);
             break;
         }
+        case 'pageBlockVoiceNote': {
+            const { voice_note, caption } = b;
+
+            loadVoiceNoteContent(store, voice_note, null);
+            loadPageBlockContent(store, caption);
+            break;
+        }
     }
 }
 
@@ -2498,7 +2511,6 @@ export {
     saveOrDownload,
     download,
     getMediaFile,
-    getMediaPreviewFile,
     isGifMimeType,
     getSrc,
     getBlob,

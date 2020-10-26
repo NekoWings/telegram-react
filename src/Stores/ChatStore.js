@@ -9,6 +9,7 @@ import EventEmitter from './EventEmitter';
 import InputTypingManager from '../Utils/InputTypingManager';
 import { positionListEquals } from '../Utils/Chat';
 import UserStore from './UserStore';
+import MessageStore from './MessageStore';
 import TdLibController from '../Controllers/TdLibController';
 
 class ChatStore extends EventEmitter {
@@ -22,6 +23,7 @@ class ChatStore extends EventEmitter {
     }
 
     reset = () => {
+        this.scrollPositions = new Map();
         this.items = new Map();
         this.typingManagers = new Map();
         this.onlineMemberCount = new Map();
@@ -183,6 +185,7 @@ class ChatStore extends EventEmitter {
                 }
 
                 this.updateChatChatLists(chat_id);
+                MessageStore.set(last_message);
 
                 this.emitFastUpdate(update);
                 break;
@@ -484,6 +487,14 @@ class ChatStore extends EventEmitter {
 
     setTypingManager(chatId, typingManager) {
         return this.typingManagers.set(chatId, typingManager);
+    }
+
+    setScrollPosition(chatId, position) {
+        this.scrollPositions.set(chatId, position);
+    }
+
+    getScrollPosition(chatId) {
+        return this.scrollPositions.get(chatId);
     }
 }
 

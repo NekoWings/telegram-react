@@ -11,21 +11,79 @@ import classNames from 'classnames';
 import { withTranslation } from 'react-i18next';
 import VisibilityIcon from '@material-ui/icons/Visibility';
 import Status from './Status';
-import { getDate, getDateHint } from '../../Utils/Message';
+import { getDate, getDateHint, getViews } from '../../Utils/Message';
 import MessageStore from '../../Stores/MessageStore';
 import './Meta.css';
 
 class Meta extends React.Component {
+
+    state = { };
+
+    static getDerivedStateFromProps(props, state) {
+        const { chatId, messageId } = props;
+        const { prevChatId, prevMessageId } = state;
+
+        if (prevChatId !== chatId || prevMessageId !== messageId) {
+            const message = MessageStore.get(chatId, messageId);
+            if (!message) return null;
+
+            const { date, edit_date: editDate, views, is_outgoing: isOutgoing } = message;
+
+            return {
+                prevChatId: chatId,
+                prevMessageId: messageId,
+
+                date,
+                editDate,
+                views,
+                isOutgoing
+            };
+        }
+
+        return null;
+    }
+
+    componentDidMount() {
+        MessageStore.on('updateMessageEdited', this.onUpdateMessageEdited);
+        MessageStore.on('updateMessageViews', this.onUpdateMessageViews);
+    }
+
+    componentWillUnmount() {
+        MessageStore.off('updateMessageEdited', this.onUpdateMessageEdited);
+        MessageStore.off('updateMessageViews', this.onUpdateMessageViews);
+    }
+
+    onUpdateMessageEdited = update => {
+        const { chat_id, message_id, edit_date: editDate } = update;
+        const { chatId, messageId } = this.props;
+
+        if (chat_id !== chatId) return;
+        if (message_id !== messageId) return;
+
+        this.setState({
+            editDate
+        });
+    };
+
+    onUpdateMessageViews = update => {
+        const { chat_id, message_id, views } = update;
+        const { chatId, messageId } = this.props;
+
+        if (chat_id !== chatId) return;
+        if (message_id !== messageId) return;
+
+        this.setState({
+            views
+        });
+    };
+
     render() {
-        const { className, chatId, messageId, date, editDate, onDateClick, t, views, style } = this.props;
-
-        const message = MessageStore.get(chatId, messageId);
-        if (!message) return null;
-
-        const { is_outgoing } = message;
+        const { className, chatId, messageId, onDateClick, t, style } = this.props;
+        const { date, editDate, views, isOutgoing } = this.state;
 
         const dateStr = getDate(date);
         const dateHintStr = getDateHint(date);
+        const viewsStr = getViews(views);
 
         return (
             <div className={classNames('meta', className)} style={style}>
@@ -33,9 +91,9 @@ class Meta extends React.Component {
                 {views > 0 && (
                     <>
                         <VisibilityIcon className='meta-views-icon' />
-                        <span className='meta-views'>
+                        <span className='meta-views' title={views}>
                             &nbsp;
-                            {views}
+                            {viewsStr}
                             &nbsp; &nbsp;
                         </span>
                     </>
@@ -44,7 +102,7 @@ class Meta extends React.Component {
                 <a onClick={onDateClick}>
                     <span title={dateHintStr}>{dateStr}</span>
                 </a>
-                {is_outgoing && <Status chatId={chatId} messageId={messageId} />}
+                {isOutgoing && <Status chatId={chatId} messageId={messageId} />}
             </div>
         );
     }
@@ -53,9 +111,6 @@ class Meta extends React.Component {
 Meta.propTypes = {
     chatId: PropTypes.number.isRequired,
     messageId: PropTypes.number.isRequired,
-    views: PropTypes.number,
-    date: PropTypes.number.isRequired,
-    editDate: PropTypes.number,
     onDateClick: PropTypes.func
 };
 

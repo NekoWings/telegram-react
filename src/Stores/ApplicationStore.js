@@ -272,6 +272,14 @@ class ApplicationStore extends EventEmitter {
                 this.recording = false;
                 break;
             }
+            case 'clientUpdateRequestClearHistory': {
+                this.emit('clientUpdateRequestClearHistory', update);
+                break;
+            }
+            case 'clientUpdateRequestLeaveChat': {
+                this.emit('clientUpdateRequestLeaveChat', update);
+                break;
+            }
             case 'clientUpdateSearchChat': {
                 this.emit('clientUpdateSearchChat', update);
                 break;
@@ -289,7 +297,7 @@ class ApplicationStore extends EventEmitter {
                 } else {
                     if (
                         this.authorizationState &&
-                        this.authorizationState['@type'] === 'authorizationStateWaitPhoneNumber'
+                        (this.authorizationState['@type'] === 'authorizationStateWaitPhoneNumber' || this.authorizationState['@type'] === 'authorizationStateWaitOtherDeviceConfirmation')
                     ) {
                         this.setPhoneNumber(phone);
                     } else {

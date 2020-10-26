@@ -7,6 +7,35 @@
 
 import { PHOTO_SIZE, PHOTO_THUMBNAIL_SIZE } from '../Constants';
 
+let webpSupported = undefined;
+
+export async function isWebpSupported() {
+    // return false;
+
+    if (webpSupported !== undefined) {
+        return webpSupported;
+    }
+
+    const promise = new Promise(resolve => {
+        const image = new Image();
+        image.onload = function () {
+            resolve(image.width === 2 && image.height === 1);
+        }
+        image.onerror = function () {
+            resolve(false);
+        }
+        image.src = 'data:image/webp;base64,UklGRjIAAABXRUJQVlA4ICYAAACyAgCdASoCAAEALmk0mk0iIiIiIgBoSygABc6zbAAA/v56QAAAAA==';
+    });
+
+    return webpSupported = await promise;
+}
+
+export function isSafari() {
+    return /(Safari|iPhone|iPad|iPod)/.test(navigator.userAgent)
+        && !/Chrome/.test(navigator.userAgent)
+        && !/BlackBerry/.test(navigator.platform);
+}
+
 export function compareMaps(map1, map2) {
     if (!map1 || !map2) return false;
 
@@ -154,6 +183,10 @@ function getSize(sizes, dimension) {
     let diff = Math.abs(dimension - (useWidth ? sizes[0].width : sizes[0].height));
     let index = 0;
     for (let i = 1; i < sizes.length; i++) {
+        if (!sizes[i]) {
+            continue;
+        }
+
         if (sizes[i].type === 'i' && !sizes[i].photo.local.is_downloading_completed) {
             continue;
         }
@@ -168,10 +201,10 @@ function getSize(sizes, dimension) {
     return sizes[index];
 }
 
-function getFitSize(size, max, increaseToMax = true) {
+function getFitSize(size, max, stretch = true) {
     if (!size) return { width: 0, height: 0 };
 
-    if (!increaseToMax) {
+    if (!stretch) {
         if (size.width < max && size.height < max) {
             return size;
         }
@@ -185,12 +218,12 @@ function getFitSize(size, max, increaseToMax = true) {
 }
 
 function itemsInView(scrollContainerRef, itemsContainerRef) {
-    let scrollContainer = scrollContainerRef.current;
-    let itemsContainer = itemsContainerRef ? itemsContainerRef.current : scrollContainer;
+    const scrollContainer = scrollContainerRef.current;
+    const itemsContainer = itemsContainerRef ? itemsContainerRef.current : scrollContainer;
 
     const items = [];
     for (let i = 0; i < itemsContainer.children.length; i++) {
-        let child = itemsContainer.children[i];
+        const child = itemsContainer.children[i];
         if (
             child.offsetTop + child.offsetHeight >= scrollContainer.scrollTop &&
             child.offsetTop <= scrollContainer.scrollTop + scrollContainer.offsetHeight
@@ -200,6 +233,26 @@ function itemsInView(scrollContainerRef, itemsContainerRef) {
     }
 
     return items;
+}
+
+export function getScrollMessage(snapshot, itemsContainerRef) {
+    if (!snapshot) return { index: -1, offset: 0 };
+
+    const { current: itemsContainer } = itemsContainerRef;
+
+    for (let i = 0; i < itemsContainer.children.length; i++) {
+        const child = itemsContainer.children[i];
+        const offsetTop = child.offsetTop;
+        const scrollTop = snapshot.scrollTop;
+        const offsetHeight = snapshot.offsetHeight;
+        // console.log('[scroll] child', [i, offsetTop, child.offsetHeight, scrollTop]);
+
+        if (offsetTop >= scrollTop && offsetTop <= scrollTop + offsetHeight) {
+            return { index: i, offset: offsetTop - scrollTop, offsetTop, scrollTop };
+        }
+    }
+
+    return { index: -1, offset: 0 };
 }
 
 // Returns a function, that, when invoked, will only be triggered at most once
@@ -276,7 +329,7 @@ export function getFirstLetter(str) {
         }
     }
 
-    return '';
+    return [...str].length > 0 ? [...str][0] : '';
 }
 
 function getLetters(title) {
@@ -376,7 +429,11 @@ function clamp(item, first, last) {
     return item;
 }
 
-function getDurationString(secondsTotal) {
+function getDurationString(secondsTotal, duration, reverse) {
+    if (reverse && duration > 0) {
+        secondsTotal = Math.max(Math.floor(duration) - secondsTotal, 0);
+    }
+
     let hours = Math.floor(secondsTotal / 3600);
     let minutes = Math.floor((secondsTotal - hours * 3600) / 60);
     let seconds = secondsTotal - hours * 3600 - minutes * 60;
@@ -388,7 +445,7 @@ function getDurationString(secondsTotal) {
         seconds = '0' + seconds;
     }
 
-    return (hours > 0 ? hours + ':' : '') + minutes + ':' + seconds;
+    return (reverse ? '-': '') + (hours > 0 ? hours + ':' : '') + minutes + ':' + seconds;
 }
 
 export function getRandomInt(min, max) {
@@ -405,6 +462,23 @@ function historyEquals(first, second) {
     if (first.length === 0 && second.length === 0) return true;
 
     return first === second;
+}
+
+export function albumHistoryEquals(first, second) {
+    if (first === second) return true;
+    if (!first && second) return false;
+    if (first && !second) return false;
+
+    if (first.length === 0 && second.length === 0) return true;
+    if (first.length !== second.length) return false;
+
+    for (let i = 0; i < first.length; i++) {
+        if (first[i] !== second[i]) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 function insertByOrder(array, element, comparator) {

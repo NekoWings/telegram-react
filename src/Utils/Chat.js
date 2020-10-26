@@ -15,13 +15,63 @@ import { getContent, isMessageUnread } from './Message';
 import { isServiceMessage } from './ServiceMessage';
 import { formatPhoneNumber } from './Phone';
 import { getChannelStatus } from './Channel';
-import { SERVICE_NOTIFICATIONS_USER_ID } from '../Constants';
+import { SERVICE_NOTIFICATIONS_USER_ID, SHARED_MESSAGE_SLICE_LIMIT } from '../Constants';
 import BasicGroupStore from '../Stores/BasicGroupStore';
 import ChatStore from '../Stores/ChatStore';
+import MessageStore from '../Stores/MessageStore';
 import NotificationStore from '../Stores/NotificationStore';
 import SupergroupStore from '../Stores/SupergroupStore';
 import UserStore from '../Stores/UserStore';
 import TdLibController from '../Controllers/TdLibController';
+
+export function getDeleteChatTitle(chatId, t = x => x) {
+    const chat = ChatStore.get(chatId);
+    if (!chat) return null;
+    if (!chat.type) return null;
+
+    switch (chat.type['@type']) {
+        case 'chatTypeBasicGroup': {
+            return t('DeleteChat');
+        }
+        case 'chatTypeSupergroup': {
+            const supergroup = SupergroupStore.get(chat.type.supergroup_id);
+            if (supergroup) {
+                return supergroup.is_channel ? t('LeaveChannel') : t('LeaveMegaMenu');
+            }
+
+            return null;
+        }
+        case 'chatTypePrivate':
+        case 'chatTypeSecret': {
+            return t('DeleteChatUser');
+        }
+    }
+
+    return null;
+}
+
+export function getViewInfoTitle(chatId, t = x => x) {
+    const chat = ChatStore.get(chatId);
+    if (!chat) return;
+
+    const { type } = chat;
+    switch (type['@type']) {
+        case 'chatTypeBasicGroup': {
+            return t('ViewGroupInfo');
+        }
+        case 'chatTypePrivate':
+        case 'chatTypeSecret': {
+            return t('ViewProfile');
+        }
+        case 'chatTypeSupergroup': {
+            if (type.is_channel) {
+                return t('ViewChannelInfo');
+            }
+
+            return t('ViewGroupInfo');
+        }
+    }
+}
 
 export function getChatPosition(chatId, chatList = { '@type': 'chatListMain'}) {
     const chat = ChatStore.get(chatId);
@@ -541,7 +591,8 @@ function getChatSubtitle(chatId, showSavedMessages = false) {
     return getChatSubtitleWithoutTyping(chatId);
 }
 
-function getChatLetters(chat, t) {
+function getChatLetters(chatId, t) {
+    const chat = ChatStore.get(chatId);
     if (!chat) return null;
 
     let title = chat.title || t('HiddenName');
@@ -997,6 +1048,93 @@ function getGroupChatMembers(chatId) {
     return fallbackValue;
 }
 
+export async function getChatMedia(chatId) {
+    const chat = ChatStore.get(chatId);
+    if (!chat) return null;
+
+    console.log('[media] getChatMedia start', chatId);
+    const promises = [];
+
+    const limit = 100;
+    promises.push(TdLibController.send({
+        '@type': 'searchChatMessages',
+        chat_id: chatId,
+        query: '',
+        sender_user_id: 0,
+        from_message_id: 0,
+        offset: 0,
+        limit,
+        filter: { '@type': 'searchMessagesFilterPhotoAndVideo' }
+    }));
+    promises.push(TdLibController.send({
+        '@type': 'searchChatMessages',
+        chat_id: chatId,
+        query: '',
+        sender_user_id: 0,
+        from_message_id: 0,
+        offset: 0,
+        limit,
+        filter: { '@type': 'searchMessagesFilterDocument' }
+    }));
+    promises.push(TdLibController.send({
+        '@type': 'searchChatMessages',
+        chat_id: chatId,
+        query: '',
+        sender_user_id: 0,
+        from_message_id: 0,
+        offset: 0,
+        limit,
+        filter: { '@type': 'searchMessagesFilterAudio' }
+    }));
+    promises.push(TdLibController.send({
+        '@type': 'searchChatMessages',
+        chat_id: chatId,
+        query: '',
+        sender_user_id: 0,
+        from_message_id: 0,
+        offset: 0,
+        limit,
+        filter: { '@type': 'searchMessagesFilterUrl' }
+    }));
+    promises.push(TdLibController.send({
+        '@type': 'searchChatMessages',
+        chat_id: chatId,
+        query: '',
+        sender_user_id: 0,
+        from_message_id: 0,
+        offset: 0,
+        limit,
+        filter: { '@type': 'searchMessagesFilterVoiceNote' }
+    }));
+    if (isPrivateChat(chatId)) {
+        const userId = getChatUserId(chatId);
+
+        promises.push(TdLibController.send({
+            '@type': 'getGroupsInCommon',
+            user_id: userId,
+            offset_chat_id: 0,
+            limit
+        }));
+    }
+
+    const [photoAndVideo, document, audio, url, voiceNote, groupsInCommon] = await Promise.all(promises);
+    const media = {
+        photoAndVideo: photoAndVideo.messages,
+        document: document.messages,
+        audio: audio.messages,
+        url: url.messages,
+        voiceNote: voiceNote.messages,
+        groupsInCommon: groupsInCommon ? groupsInCommon.chat_ids.map(x => ChatStore.get(x)) : []
+    }
+    console.log('[media] getChatMedia stop', chatId, media);
+
+    TdLibController.clientUpdate({
+        '@type': 'clientUpdateChatMedia',
+        chatId,
+        media
+    });
+}
+
 async function getChatFullInfo(chatId) {
     const chat = ChatStore.get(chatId);
     if (!chat) return null;
@@ -1250,31 +1388,28 @@ function getGroupChatMembersCount(chatId) {
 function canClearHistory(chatId) {
     const chat = ChatStore.get(chatId);
     if (!chat) return false;
-    if (!chat.type) return false;
+
+    return chat.can_be_deleted_only_for_self || chat.can_be_deleted_for_all_users;
+}
+
+function canDeleteChat(chatId) {
+    const chat = ChatStore.get(chatId);
+    if (!chat) return false;
 
     switch (chat.type['@type']) {
         case 'chatTypeBasicGroup': {
             return true;
         }
         case 'chatTypeSupergroup': {
-            const supergroup = SupergroupStore.get(chat.type.supergroup_id);
-            if (supergroup) {
-                return !Boolean(supergroup.username);
-            }
-
-            return true;
+            return isChatMember(chatId);
         }
         case 'chatTypePrivate':
         case 'chatTypeSecret': {
-            return true;
+            return !isMeChat(chatId);
         }
     }
 
     return false;
-}
-
-function canDeleteChat(chatId) {
-    return !isMeChat(chatId);
 }
 
 function canSendPolls(chatId) {

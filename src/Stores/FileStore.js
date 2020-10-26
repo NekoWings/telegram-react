@@ -8,6 +8,7 @@
 import EventEmitter from './EventEmitter';
 import { getLocationId } from '../Utils/Message';
 import { FILE_PRIORITY, IV_LOCATION_HEIGHT, IV_LOCATION_WIDTH, THUMBNAIL_PRIORITY } from '../Constants';
+import WebpManager from './WebpManager';
 import TdLibController from '../Controllers/TdLibController';
 
 const useReadFile = true;
@@ -21,6 +22,7 @@ class FileStore extends EventEmitter {
 
         this.addTdLibListener();
 
+        WebpManager.init();
         // this.suppressUpdateFile = true;
     }
 
@@ -33,6 +35,7 @@ class FileStore extends EventEmitter {
         this.dataUrls = new Map();
         this.items = new Map();
         this.blobItems = new Map();
+        this.pngBlobItems = new Map();
         this.locationItems = new Map();
 
         this.downloads = new Map();
@@ -63,7 +66,11 @@ class FileStore extends EventEmitter {
 
     onClientUpdate = update => {
         switch (update['@type']) {
-            case 'clientUpdateAudioThumbnailBlob': {
+            case 'clientUpdateAnimationBlob': {
+                this.emit(update['@type'], update);
+                break;
+            }
+            case 'clientUpdateAnimationThumbnailBlob': {
                 this.emit(update['@type'], update);
                 break;
             }
@@ -71,7 +78,92 @@ class FileStore extends EventEmitter {
                 this.emit(update['@type'], update);
                 break;
             }
+            case 'clientUpdateAudioThumbnailBlob': {
+                this.emit(update['@type'], update);
+                break;
+            }
+            case 'clientUpdateChatBlob': {
+                this.emit(update['@type'], update);
+                break;
+            }
             case 'clientUpdateDocumentBlob': {
+                this.emit(update['@type'], update);
+                break;
+            }
+            case 'clientUpdateDocumentThumbnailBlob': {
+                this.emit(update['@type'], update);
+                break;
+            }
+            case 'clientUpdateLocationBlob': {
+                this.emit(update['@type'], update);
+                break;
+            }
+            case 'clientUpdatePhotoBlob': {
+                this.emit(update['@type'], update);
+                break;
+            }
+            case 'clientUpdateStickerBlob': {
+                const { fileId, source } = update;
+                if (source) {
+                    const { is_animated } = source;
+                    if (!is_animated) {
+                        WebpManager.decode(fileId, false);
+                    }
+                }
+
+                this.emit(update['@type'], update);
+                break;
+            }
+            case 'clientUpdateStickerPngBlob': {
+                const { fileId, blob } = update;
+
+                this.setPngBlob(fileId, blob);
+                this.emit(update['@type'], update);
+                break;
+            }
+            case 'clientUpdateStickerThumbnailBlob': {
+                const { fileId, source } = update;
+                if (source) {
+                    const { thumbnail } = source;
+                    if (thumbnail) {
+                        const { format } = thumbnail;
+                        if (format && format['@type'] === 'thumbnailFormatWebp') {
+                            WebpManager.decode(fileId, true);
+                        }
+                    }
+                }
+
+                this.emit(update['@type'], update);
+                break;
+            }
+            case 'clientUpdateStickerThumbnailPngBlob': {
+                const { fileId, blob } = update;
+
+                this.setPngBlob(fileId, blob);
+                this.emit(update['@type'], update);
+                break;
+            }
+            case 'clientUpdateUserBlob': {
+                this.emit(update['@type'], update);
+                break;
+            }
+            case 'clientUpdateVideoBlob': {
+                this.emit(update['@type'], update);
+                break;
+            }
+            case 'clientUpdateVideoThumbnailBlob': {
+                this.emit(update['@type'], update);
+                break;
+            }
+            case 'clientUpdateVideoNoteBlob': {
+                this.emit(update['@type'], update);
+                break;
+            }
+            case 'clientUpdateVideoNoteThumbnailBlob': {
+                this.emit(update['@type'], update);
+                break;
+            }
+            case 'clientUpdateVoiceNoteBlob': {
                 this.emit(update['@type'], update);
                 break;
             }
@@ -541,7 +633,7 @@ class FileStore extends EventEmitter {
                     store,
                     source,
                     arr,
-                    () => this.updateStickerThumbnailBlob(chatId, messageId, file.id),
+                    () => this.updateStickerThumbnailBlob(chatId, messageId, file.id, sticker),
                     () => this.getRemoteFile(file.id, THUMBNAIL_PRIORITY, obj || sticker)
                 );
             }
@@ -554,7 +646,7 @@ class FileStore extends EventEmitter {
                     store,
                     source,
                     arr,
-                    () => this.updateStickerBlob(chatId, messageId, file.id),
+                    () => this.updateStickerBlob(chatId, messageId, file.id, sticker),
                     () => this.getRemoteFile(file.id, FILE_PRIORITY, obj || sticker)
                 );
             }
@@ -729,7 +821,9 @@ class FileStore extends EventEmitter {
                 });
 
                 // console.log(`[fs] readFile result file_id=${file.id}`, file, response);
-                this.setBlob(file.id, response.data);
+                if (!this.getBlob(file.id)) {
+                    this.setBlob(file.id, response.data);
+                }
             })(file).then(callback, faultCallback);
 
             return;
@@ -854,6 +948,14 @@ class FileStore extends EventEmitter {
         this.blobItems.set(fileId, blob);
     };
 
+    getPngBlob = fileId => {
+        return this.pngBlobItems.get(fileId);
+    };
+
+    setPngBlob = (fileId, blob) => {
+        this.pngBlobItems.set(fileId, blob);
+    }
+
     deleteBlob = fileId => {
         this.blobItems.delete(fileId);
     };
@@ -911,142 +1013,91 @@ class FileStore extends EventEmitter {
         }
     };
 
-    updatePhotoBlob = (chatId, messageId, fileId) => {
-        this.emit('clientUpdatePhotoBlob', {
-            chatId: chatId,
-            messageId: messageId,
-            fileId: fileId
-        });
-    };
-
-    updateAudioThumbnailBlob = (chatId, messageId, fileId) => {
+    updateFileBlob = (type, chatId, messageId, fileId, source) => {
         TdLibController.clientUpdate({
-            '@type': 'clientUpdateAudioThumbnailBlob',
-            chatId: chatId,
-            messageId: messageId,
-            fileId: fileId
+            '@type': type,
+            chatId,
+            messageId,
+            fileId,
+            source
         });
-    };
+    }
 
-    updateAudioBlob = (chatId, messageId, fileId) => {
-        TdLibController.clientUpdate({
-            '@type': 'clientUpdateAudioBlob',
-            chatId: chatId,
-            messageId: messageId,
-            fileId: fileId
-        });
-    };
-
-    updateVoiceNoteBlob = (chatId, messageId, fileId) => {
-        this.emit('clientUpdateVoiceNoteBlob', {
-            chatId: chatId,
-            messageId: messageId,
-            fileId: fileId
-        });
-    };
-
-    updateVideoNoteThumbnailBlob = (chatId, messageId, fileId) => {
-        this.emit('clientUpdateVideoNoteThumbnailBlob', {
-            chatId: chatId,
-            messageId: messageId,
-            fileId: fileId
-        });
-    };
-
-    updateVideoNoteBlob = (chatId, messageId, fileId) => {
-        this.emit('clientUpdateVideoNoteBlob', {
-            chatId: chatId,
-            messageId: messageId,
-            fileId: fileId
-        });
+    updateAnimationBlob = (chatId, messageId, fileId) => {
+        this.updateFileBlob('clientUpdateAnimationBlob', chatId, messageId, fileId);
     };
 
     updateAnimationThumbnailBlob = (chatId, messageId, fileId) => {
-        this.emit('clientUpdateAnimationThumbnailBlob', {
-            chatId: chatId,
-            messageId: messageId,
-            fileId: fileId
-        });
+        this.updateFileBlob('clientUpdateAnimationThumbnailBlob', chatId, messageId, fileId);
     };
 
-    updateAnimationBlob = (chatId, messageId, fileId) => {
-        this.emit('clientUpdateAnimationBlob', {
-            chatId: chatId,
-            messageId: messageId,
-            fileId: fileId
-        });
+    updateAudioBlob = (chatId, messageId, fileId) => {
+        this.updateFileBlob('clientUpdateAudioBlob', chatId, messageId, fileId);
     };
+
+    updateAudioThumbnailBlob = (chatId, messageId, fileId) => {
+        this.updateFileBlob('clientUpdateAudioThumbnailBlob', chatId, messageId, fileId);
+    };
+
+    updateChatPhotoBlob(chatId, fileId) {
+        TdLibController.clientUpdate({
+            '@type': 'clientUpdateChatBlob',
+            chatId,
+            fileId
+        });
+    }
 
     updateDocumentBlob = (chatId, messageId, fileId) => {
-        TdLibController.clientUpdate({
-            '@type': 'clientUpdateDocumentBlob',
-            chatId: chatId,
-            messageId: messageId,
-            fileId: fileId
-        });
-    };
-
-    updateVideoThumbnailBlob = (chatId, messageId, fileId) => {
-        this.emit('clientUpdateVideoThumbnailBlob', {
-            chatId: chatId,
-            messageId: messageId,
-            fileId: fileId
-        });
-    };
-
-    updateVideoBlob = (chatId, messageId, fileId) => {
-        this.emit('clientUpdateVideoBlob', {
-            chatId: chatId,
-            messageId: messageId,
-            fileId: fileId
-        });
-    };
-
-    updateStickerThumbnailBlob = (chatId, messageId, fileId) => {
-        this.emit('clientUpdateStickerThumbnailBlob', {
-            chatId: chatId,
-            messageId: messageId,
-            fileId: fileId
-        });
-    };
-
-    updateStickerBlob = (chatId, messageId, fileId) => {
-        this.emit('clientUpdateStickerBlob', {
-            chatId: chatId,
-            messageId: messageId,
-            fileId: fileId
-        });
-    };
-
-    updateLocationBlob = (chatId, messageId, fileId) => {
-        this.emit('clientUpdateLocationBlob', {
-            chatId: chatId,
-            messageId: messageId,
-            fileId: fileId
-        });
+        this.updateFileBlob('clientUpdateDocumentBlob', chatId, messageId, fileId);
     };
 
     updateDocumentThumbnailBlob = (chatId, messageId, fileId) => {
-        this.emit('clientUpdateDocumentThumbnailBlob', {
-            chatId: chatId,
-            messageId: messageId,
-            fileId: fileId
-        });
+        this.updateFileBlob('clientUpdateDocumentThumbnailBlob', chatId, messageId, fileId);
+    };
+
+    updateLocationBlob = (chatId, messageId, fileId) => {
+        this.updateFileBlob('clientUpdateLocationBlob', chatId, messageId, fileId);
+    };
+
+    updatePhotoBlob = (chatId, messageId, fileId) => {
+        this.updateFileBlob('clientUpdatePhotoBlob', chatId, messageId, fileId);
+    };
+
+    updateStickerBlob = (chatId, messageId, fileId, source) => {
+        this.updateFileBlob('clientUpdateStickerBlob', chatId, messageId, fileId, source);
+    };
+
+    updateStickerThumbnailBlob = (chatId, messageId, fileId, source) => {
+        this.updateFileBlob('clientUpdateStickerThumbnailBlob', chatId, messageId, fileId, source);
     };
 
     updateUserPhotoBlob(userId, fileId) {
-        this.emit('clientUpdateUserBlob', {
-            userId: userId,
-            fileId: fileId
+        TdLibController.clientUpdate({
+            '@type': 'clientUpdateUserBlob',
+            userId,
+            fileId
         });
     }
 
-    updateChatPhotoBlob(chatId, fileId) {
-        this.emit('clientUpdateChatBlob', {
-            chatId: chatId,
-            fileId: fileId
-        });
-    }
+    updateVideoBlob = (chatId, messageId, fileId) => {
+        this.updateFileBlob('clientUpdateVideoBlob', chatId, messageId, fileId);
+    };
+
+    updateVideoThumbnailBlob = (chatId, messageId, fileId) => {
+        this.updateFileBlob('clientUpdateVideoThumbnailBlob', chatId, messageId, fileId);
+    };
+
+    updateVideoNoteBlob = (chatId, messageId, fileId) => {
+        this.updateFileBlob('clientUpdateVideoNoteBlob', chatId, messageId, fileId);
+    };
+
+    updateVideoNoteThumbnailBlob = (chatId, messageId, fileId) => {
+        this.updateFileBlob('clientUpdateVideoNoteThumbnailBlob', chatId, messageId, fileId);
+    };
+
+    updateVoiceNoteBlob = (chatId, messageId, fileId) => {
+        this.updateFileBlob('clientUpdateVoiceNoteBlob', chatId, messageId, fileId);
+    };
 }
 
 const store = new FileStore();

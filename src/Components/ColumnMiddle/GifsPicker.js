@@ -8,6 +8,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import * as ReactDOM from 'react-dom';
+import classNames from 'classnames';
 import { withTranslation } from 'react-i18next';
 import { compose, withRestoreRef, withSaveRef } from '../../Utils/HOC';
 import Animation from '../Message/Media/Animation';
@@ -102,7 +103,7 @@ class GifsPicker extends React.Component {
     };
 
     loadInViewContent = (padding = 0) => {
-        console.log('[gp] loadInViewContent');
+        // console.log('[gp] loadInViewContent');
         const scroll = this.scrollRef.current;
 
         const { savedAnimations } = AnimationStore;
@@ -137,12 +138,12 @@ class GifsPicker extends React.Component {
 
         const { animationsInView } = AnimationStore;
         if (compareMaps(animationsInView, inViewMap)) {
-            console.log('[gp] inViewItems equals', inViewIndexes, animationsInView);
+            // console.log('[gp] inViewItems equals', inViewIndexes, animationsInView);
             return;
         }
 
 
-        console.log('[gp] inViewItems', inViewIndexes);
+        // console.log('[gp] inViewItems', inViewIndexes);
         TdLibController.clientUpdate({
             '@type': 'clientUpdateAnimationsInView',
             animations: inViewMap
@@ -242,9 +243,9 @@ class GifsPicker extends React.Component {
                 onMouseEnter={this.handleMouseEnter}
                 >
                 <Animation
+                    type='picker'
                     animation={x}
                     openMedia={() => this.openAnimation(x)}
-                    picker={true}
                     style={{ width: 104, height: 104, margin: 2, borderRadius: 0 }}
                 />
             </div>
@@ -252,7 +253,7 @@ class GifsPicker extends React.Component {
 
         return (
             <div className='gifs-picker' style={style}>
-                <div ref={this.scrollRef} className='gifs-picker-scroll' onScroll={this.handleScroll}>
+                <div ref={this.scrollRef} className={classNames('gifs-picker-scroll', 'scrollbars-hidden')} onScroll={this.handleScroll}>
                     {items}
                 </div>
             </div>

@@ -177,9 +177,16 @@ class Phone extends React.Component {
 
         const { defaultPhone, data } = props;
 
-        const phone = defaultPhone || '';
-        const country = getCountryFromPhone(phone, data);
-        const countryCode = null;
+        let phone = defaultPhone || '';
+        let country = getCountryFromPhone(phone, data);
+        if (!phone && !country) {
+            const { code } = AuthStore;
+            if (code) {
+                const [p, c] = this.getPhoneCountry(code);
+                phone = p;
+                country = c;
+            }
+        }
 
         this.state = {
             connecting: isConnecting(AppStore.connectionState),
@@ -189,31 +196,38 @@ class Phone extends React.Component {
             keep: true,
 
             phone,
-            country,
-            countryCode
+            country
         };
 
         this.phoneInputRef = React.createRef();
     }
 
-    async setCountryCode() {
-        const { countryCode } = this.state;
-        if (countryCode) return;
-
-        const code = await TdLibController.send({ '@type': 'getCountryCode' });
-        if (!code) return;
+    getPhoneCountry(code) {
+        if (!code) return [null, null];
 
         const { data } = this.props;
-        let { country, phone } = this.state;
-        if (!country && !phone && data) {
-            country = getCountryFromCode(code.text, data);
-            if (country) {
-                phone = '+' + clearPhone(country.phone) + ' ';
-            }
+        if (!data) return [null, null];
+
+        let phone = null;
+        const country = getCountryFromCode(code.text, data);
+        if (country) {
+            phone = '+' + clearPhone(country.phone) + ' ';
         }
 
-        this.setState({ phone, country, countryCode });
+        return [phone, country];
     }
+
+    onClientUpdateCountryCode = update => {
+        const { code } = AuthStore;
+        if (!code) return;
+
+        const [phone, country] = this.getPhoneCountry(code);
+        if (this.state.phone) {
+            return;
+        }
+
+        this.setState({ phone, country });
+    };
 
     shouldComponentUpdate(nextProps, nextState, nextContext) {
         return true;
@@ -222,6 +236,7 @@ class Phone extends React.Component {
     componentDidMount() {
         this.setSuggestedLanguagePackId();
 
+        AuthStore.on('clientUpdateCountryCode', this.onClientUpdateCountryCode);
         AppStore.on('clientUpdateSetPhoneCanceled', this.onClientUpdateSetPhoneCanceled);
         AppStore.on('clientUpdateSetPhoneError', this.onClientUpdateSetPhoneError);
         AppStore.on('clientUpdateSetPhoneResult', this.onClientUpdateSetPhoneResult);
@@ -230,6 +245,7 @@ class Phone extends React.Component {
     }
 
     componentWillUnmount() {
+        AuthStore.off('clientUpdateCountryCode', this.onClientUpdateCountryCode);
         AppStore.off('clientUpdateSetPhoneCanceled', this.onClientUpdateSetPhoneCanceled);
         AppStore.off('clientUpdateSetPhoneError', this.onClientUpdateSetPhoneError);
         AppStore.off('clientUpdateSetPhoneResult', this.onClientUpdateSetPhoneResult);
@@ -239,10 +255,6 @@ class Phone extends React.Component {
 
     onUpdateConnectionState = update => {
         const { state } = update;
-
-        if (state['@type'] === 'connectionStateReady') {
-            this.setCountryCode();
-        }
 
         this.setState({ connecting: isConnecting(state) });
     };
@@ -395,6 +407,12 @@ class Phone extends React.Component {
         }
     };
 
+    handleQRCode = () => {
+        const { onRequestQRCode } = this.props;
+
+        onRequestQRCode && onRequestQRCode();
+    };
+
     render() {
         const { data, i18n, t } = this.props;
         const { connecting, loading, error, suggestedLanguage, keep, phone, country } = this.state;
@@ -410,7 +428,10 @@ class Phone extends React.Component {
         }
 
         const title = connecting ? cleanProgressStatus(t('Connecting')) : t('SignInToTelegram');
-        const nextLanguage = suggestedLanguage === i18n.language ? LocalizationStore.fallbackLng : suggestedLanguage;
+        let nextLanguage = suggestedLanguage;
+        if (suggestedLanguage === i18n.language && i18n.language !== LocalizationStore.fallbackLng) {
+            nextLanguage = LocalizationStore.fallbackLng;
+        }
 
         return (
             <form className='auth-root' autoComplete='off'>
@@ -425,7 +446,7 @@ class Phone extends React.Component {
                     debug={false}
                     id='country-select'
                     noOptionsText={t('NoResult')}
-                    options={data}
+                    options={data || []}
                     disabled={loading}
                     autoHighlight
                     getOptionLabel={option => option.name}
@@ -480,10 +501,17 @@ class Phone extends React.Component {
                     {t('Next')}
                 </Button>
                 <Typography className='sign-in-continue-on'>
-                    <Link onClick={this.handleChangeLanguage}>
-                        {Boolean(nextLanguage) ? t('ContinueOnThisLanguage', { lng: nextLanguage }) : ' '}
+                    <Link onClick={this.handleQRCode}>
+                        {t('LogInViaQR')}
                     </Link>
                 </Typography>
+                { !!nextLanguage && (
+                    <Typography className='sign-in-continue-on'>
+                        <Link onClick={this.handleChangeLanguage}>
+                            {t('ContinueOnThisLanguage', { lng: nextLanguage })}
+                        </Link>
+                    </Typography>
+                )}
             </form>
         );
     }

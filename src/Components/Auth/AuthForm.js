@@ -15,6 +15,8 @@ import { loadData } from '../../Utils/Phone';
 import AppStore from '../../Stores/ApplicationStore';
 import AuthStore from '../../Stores/AuthorizationStore';
 import './AuthForm.css';
+import QRCode from './QRCode';
+import Footer from '../Footer';
 
 class AuthForm extends React.Component {
     state = {
@@ -39,21 +41,33 @@ class AuthForm extends React.Component {
     };
 
     render() {
-        const { authorizationState: state } = this.props;
+        const { authorizationState: state, onChangePhone, onRequestQRCode } = this.props;
         const { data } = this.state;
         const { defaultPhone } = AppStore;
 
         let control = null;
         switch (state['@type']) {
+            case 'authorizationStateWaitOtherDeviceConfirmation': {
+                control = (
+                    <QRCode
+                        state={state}
+                        onChangePhone={onChangePhone}
+                    />);
+                break;
+            }
             case 'authorizationStateWaitPhoneNumber':
+            case 'authorizationStateWaitRegistration':
             case 'authorizationStateWaitEncryptionKey':
             case 'authorizationStateWaitTdlibParameters':
             case 'authorizationStateWaitTdlib': {
-                control = <Phone defaultPhone={defaultPhone} data={data} />;
+                control = (
+                    <Phone
+                        defaultPhone={defaultPhone}
+                        data={data}
+                        onRequestQRCode={onRequestQRCode} />);
                 break;
             }
             case 'authorizationStateWaitCode': {
-                const { onChangePhone } = this.props;
                 const { terms_of_service, code_info } = state;
 
                 control = (
@@ -67,7 +81,6 @@ class AuthForm extends React.Component {
                 break;
             }
             case 'authorizationStateWaitPassword': {
-                const { onChangePhone } = this.props;
                 const { password_hint, has_recovery_email_address, recovery_email_address_pattern } = state;
 
                 control = (
@@ -89,6 +102,7 @@ class AuthForm extends React.Component {
                 <div className='authorization-form-content'>
                     <Caption state={state} />
                     {control}
+                    <Footer/>
                 </div>
                 <AuthErrorDialog />
             </div>

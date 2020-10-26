@@ -253,10 +253,18 @@ class EditMediaDialog extends React.Component {
     handleKeyDown = event => {
         const { altKey, ctrlKey, key, keyCode, code, metaKey, shiftKey, repeat, nativeEvent } = event;
 
+        // fix CJK input
+        const { isComposing } = nativeEvent;
+        if (isComposing) {
+            event.stopPropagation();
+            return;
+        }
+
         switch (nativeEvent.code) {
-            case 'Enter': {
-                // enter+cmd or enter+ctrl
-                if (!altKey && (ctrlKey || metaKey) && !shiftKey && !repeat) {
+            case 'Enter':
+            case 'NumpadEnter': {
+                // enter+cmd, enter+ctrl, enter+shift
+                if (!altKey && (ctrlKey || metaKey || shiftKey) && !repeat) {
                     document.execCommand('insertLineBreak');
 
                     event.preventDefault();
@@ -558,7 +566,7 @@ class EditMediaDialog extends React.Component {
         } else if (newItem) {
             media = getMedia({ content: newItem.media });
         }
-        const doneLabel = isEditing ? t('Edit') : t('Send');
+        const doneLabel = isEditing ? t('Save') : t('Send');
 
         return (
             <Dialog
@@ -599,6 +607,7 @@ class EditMediaDialog extends React.Component {
                 <div
                     ref={this.captionRef}
                     id='edit-media-dialog-caption'
+                    className='scrollbars-hidden'
                     contentEditable
                     suppressContentEditableWarning
                     placeholder={t('Caption')}

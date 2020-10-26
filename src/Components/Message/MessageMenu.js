@@ -22,6 +22,7 @@ import ListItemText from '@material-ui/core/ListItemText';
 import MenuItem from '@material-ui/core/MenuItem';
 import MenuList from '@material-ui/core/MenuList';
 import Popover from '@material-ui/core/Popover';
+import CheckBoxOutlinedIcon from '@material-ui/icons/CheckBoxOutlined';
 import CloseIcon from '../../Assets/Icons/Close';
 import CopyIcon from '../../Assets/Icons/Copy';
 import DeleteIcon from '../../Assets/Icons/Delete';
@@ -39,12 +40,13 @@ import { cancelPollAnswer, stopPoll } from '../../Actions/Poll';
 import { copy } from '../../Utils/Text';
 import { clearSelection, deleteMessages, editMessage, forwardMessages, replyMessage, selectMessage } from '../../Actions/Client';
 import { pinMessage, unpinMessage } from '../../Actions/Message';
+import { saveBlob } from '../../Utils/File';
 import { NOTIFICATION_AUTO_HIDE_DURATION_MS } from '../../Constants';
 import AppStore from '../../Stores/ApplicationStore';
+import FileStore from '../../Stores/FileStore';
 import MessageStore from '../../Stores/MessageStore';
 import TdLibController from '../../Controllers/TdLibController';
 import './MessageMenu.css';
-import { getArrayBuffer } from '../../Utils/File';
 
 class MessageMenu extends React.PureComponent {
     state = {
@@ -184,9 +186,13 @@ class MessageMenu extends React.PureComponent {
 
     handleSelect = event => {
         const { chatId, messageId, onClose } = this.props;
-
         onClose(event);
-        selectMessage(chatId, messageId, true);
+
+        const selection = window.getSelection().toString();
+        if (selection) return;
+
+        const selected = !MessageStore.selectedItems.has(`chatId=${chatId}_messageId=${messageId}`);
+        selectMessage(chatId, messageId, selected);
     };
 
     handleDelete = event => {
@@ -196,45 +202,7 @@ class MessageMenu extends React.PureComponent {
         deleteMessages(chatId, [messageId]);
     };
 
-    handleDownload = async event => {
-        const { chatId, messageId, onClose } = this.props;
-
-        onClose(event);
-
-        const message = MessageStore.get(chatId, messageId);
-        if (!message) return;
-
-        const { content } = message;
-        if (!content) return;
-
-        const { audio } = content;
-        if (!audio) return;
-
-        const { audio: file } = audio;
-        if (!file) return;
-
-        const { id: file_id } = file;
-
-        const result = await TdLibController.send({
-            '@type': 'downloadFile',
-            file_id,
-            priority: 1,
-            offset: 10 * 1024,
-            limit: 1024,
-            synchronous: true
-        });
-
-        const blob = await TdLibController.send({
-            '@type': 'readFilePart',
-            file_id,
-            offset: 10 * 1024,
-            count: 1024
-        });
-
-        console.log('[file] result', result, blob);
-    };
-
-    handleTest = async () => {
+    handleDownload = event => {
         const { chatId, messageId } = this.props;
         const message = MessageStore.get(chatId, messageId);
         if (!message) return;
@@ -242,42 +210,22 @@ class MessageMenu extends React.PureComponent {
         const { content } = message;
         if (!content) return;
 
-        const { video } = content;
-        if (!video) return;
+        const { sticker } = content;
+        if (!sticker) return;
 
-        const { video: file } = video;
+        const { sticker: file } = sticker;
         if (!file) return;
 
-        const { size } = file;
+        const blob = FileStore.getBlob(file.id);
+        if (!blob) return;
 
-        const chunk = 512 * 1024;
-        const count = size / chunk;
-
-        for (let i = 0; i < count; i++) {
-            console.log('[d] filePart', file.id, chunk * i);
-            await TdLibController.send({
-                '@type': 'downloadFile',
-                file_id: file.id,
-                priority: 1,
-                offset: chunk * i,
-                limit: chunk,
-                synchronous: true
-            });
-
-            const filePart = await TdLibController.send({
-                '@type': 'readFilePart',
-                file_id: file.id,
-                offset: chunk * i,
-                count: chunk
-            });
-
-            const buffer = await getArrayBuffer(filePart.data);
-        }
+        saveBlob(blob, 'sticker.tgs');
     };
 
     render() {
         const { t, chatId, messageId, anchorPosition, copyLink, open, onClose } = this.props;
         const { confirmStopPoll } = this.state;
+        if (!confirmStopPoll && !open) return null;
 
         const isPinned = isMessagePinned(chatId, messageId);
         const canBeUnvoted = canMessageBeUnvoted(chatId, messageId);
@@ -294,7 +242,7 @@ class MessageMenu extends React.PureComponent {
         return (
             <>
                 <Popover
-                    open={open}
+                    open={true}
                     onClose={onClose}
                     anchorReference='anchorPosition'
                     anchorPosition={anchorPosition}
@@ -308,12 +256,20 @@ class MessageMenu extends React.PureComponent {
                     }}
                     onMouseDown={e => e.stopPropagation()}>
                     <MenuList onClick={e => e.stopPropagation()}>
-                        {/*<MenuItem onClick={this.handleTest}>*/}
+                        {/*<MenuItem onClick={this.handleDownload}>*/}
                         {/*    <ListItemIcon>*/}
                         {/*        <CopyIcon />*/}
                         {/*    </ListItemIcon>*/}
-                        {/*    <ListItemText primary='Test' />*/}
+                        {/*    <ListItemText primary={t('Download')} />*/}
                         {/*</MenuItem>*/}
+                        {canBeSelected && (
+                            <MenuItem onClick={this.handleSelect}>
+                                <ListItemIcon>
+                                    <FrameCheckIcon />
+                                </ListItemIcon>
+                                <ListItemText primary={t('Select')} />
+                            </MenuItem>
+                        )}
                         {canCopyPublicMessageLink && (
                             <MenuItem onClick={this.handleCopyPublicMessageLink}>
                                 <ListItemIcon>
@@ -355,14 +311,6 @@ class MessageMenu extends React.PureComponent {
                                         <ListItemText primary={t('PinToTop')} />
                                     </>
                                 )}
-                            </MenuItem>
-                        )}
-                        {canBeSelected && (
-                            <MenuItem onClick={this.handleSelect}>
-                                <ListItemIcon>
-                                    <FrameCheckIcon />
-                                </ListItemIcon>
-                                <ListItemText primary={t('Select')} />
                             </MenuItem>
                         )}
                         {canBeForwarded && (

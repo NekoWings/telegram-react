@@ -20,7 +20,7 @@ import MediaViewerButton from './MediaViewerButton';
 import MediaViewerFooterText from './MediaViewerFooterText';
 import MediaViewerFooterButton from './MediaViewerFooterButton';
 import MediaViewerDownloadButton from './MediaViewerDownloadButton';
-import { getBlockCaption, getBlockMedia, getBlockUrl, getValidMediaBlocks } from '../../Utils/InstantView';
+import { getBlockCaption, getBlockMedia, getBlockUrl, getValidBlocks, isValidMediaBlock } from '../../Utils/InstantView';
 import { cancelPreloadIVMediaViewerContent, getViewerFile, preloadIVMediaViewerContent, saveMedia } from '../../Utils/File';
 import { getInputMediaContent } from '../../Utils/Media';
 import { forward, setInstantViewViewerContent } from '../../Actions/Client';
@@ -45,7 +45,6 @@ class InstantViewMediaViewer extends React.Component {
     componentDidMount() {
         this.loadContent();
 
-        // setTimeout(() => KeyboardManager.add(this.keyboardHandler), 0);
         KeyboardManager.add(this.keyboardHandler);
     }
 
@@ -54,9 +53,13 @@ class InstantViewMediaViewer extends React.Component {
     }
 
     onKeyDown = event => {
-        event.stopPropagation();
-        event.preventDefault();
+        if (modalManager.modals.length > 0) {
+            return;
+        }
 
+        if (event.isComposing) {
+            return;
+        }
 
         const { index, blocks } = this.state;
         if (!blocks) return null;
@@ -69,19 +72,21 @@ class InstantViewMediaViewer extends React.Component {
         const { key } = event;
         switch (key) {
             case 'Escape': {
-                if (modalManager.modals.length > 0) {
-                    return;
-                }
-
                 this.handleClose();
+                event.stopPropagation();
+                event.preventDefault();
                 return;
             }
             case 'ArrowLeft': {
-                this.handlePrevious();
+                this.handleNext();
+                event.stopPropagation();
+                event.preventDefault();
                 return;
             }
             case 'ArrowRight': {
-                this.handleNext();
+                this.handlePrevious();
+                event.stopPropagation();
+                event.preventDefault();
                 return;
             }
         }
@@ -95,7 +100,7 @@ class InstantViewMediaViewer extends React.Component {
     loadContent() {
         const { iv, media } = this.props;
 
-        const blocks = getValidMediaBlocks(iv);
+        const blocks = getValidBlocks(iv, isValidMediaBlock);
         const index = blocks.findIndex(x => getBlockMedia(x) === media);
 
         this.setState({
@@ -190,6 +195,19 @@ class InstantViewMediaViewer extends React.Component {
         saveMedia(media, null);
     };
 
+    handleWrapperMouseDown = event => {
+        this.mouseDownTarget = event.currentTarget;
+    }
+
+    handleWrapperClick = event => {
+        const { mouseDownTarget } = this;
+        this.mouseDownTarget = null;
+
+        if (event.currentTarget !== mouseDownTarget) return;
+
+        this.handleClose();
+    };
+
     render() {
         const { size, t } = this.props;
         const { index, blocks, hasNextMedia, hasPreviousMedia } = this.state;
@@ -230,7 +248,7 @@ class InstantViewMediaViewer extends React.Component {
                         <CloseIcon />
                     </MediaViewerFooterButton>
                 </div>
-                <div className='media-viewer-wrapper'>
+                <div className='media-viewer-wrapper' onMouseDown={this.handleWrapperMouseDown} onClick={this.handleWrapperClick}>
                     <div className='media-viewer-left-column'>
                         <MediaViewerButton disabled={!hasNextMedia} grow onClick={this.handleNext}>
                             <NavigateBeforeIcon />

@@ -880,7 +880,18 @@ class InputBox extends Component {
         const { altKey, ctrlKey, key, keyCode, charCode, metaKey, shiftKey, repeat, nativeEvent } = event;
         const { editMessageId, replyToMessageId } = this.state;
 
-        // console.log('[input] handleKeyDown', key, keyCode, charCode, altKey, ctrlKey, metaKey, shiftKey, repeat, event, nativeEvent);
+        // console.log('[input] handleKeyDown', key, keyCode, charCode, altKey, ctrlKey, metaKey, shiftKey, repeat, event, nativeEvent, nativeEvent.isComposing);
+        //
+        // setTimeout(() => {
+        //     const { innerText } = this.newMessageRef.current;
+        //     console.log('[input] text', innerText.length, [...innerText].map(x => ({ alpha: x, code: x.charCodeAt(0) })));
+        // }, 1000);
+
+        // fix CJK input
+        const { isComposing } = nativeEvent;
+        if (isComposing) {
+            return;
+        }
 
         switch (nativeEvent.code) {
             // ctrl+alt+0 fix
@@ -893,9 +904,10 @@ class InputBox extends Component {
                 }
                 break;
             }
-            case 'Enter': {
-                // enter+cmd or enter+ctrl
-                if (!altKey && (ctrlKey || metaKey) && !shiftKey && !repeat) {
+            case 'Enter':
+            case 'NumpadEnter': {
+                // enter+cmd, enter+ctrl, enter+shift
+                if (!altKey && (ctrlKey || metaKey || shiftKey) && !repeat) {
                     document.execCommand('insertLineBreak');
 
                     event.preventDefault();
@@ -1118,13 +1130,12 @@ class InputBox extends Component {
 
         const { photo: file } = size;
         if (!file) return;
-        if (file.blob) return;
 
-        file.blob = blob;
+        FileStore.setBlob(file.id, blob);
         FileStore.updatePhotoBlob(chat_id, id, file.id);
     };
 
-    editMessageMedia(content) {
+    async editMessageMedia(content) {
         const { chatId, editMessageId } = this.state;
         // console.log('[em] editMessageMedia start', chatId, editMessageId, content);
 
@@ -1132,7 +1143,7 @@ class InputBox extends Component {
         if (!editMessageId) return;
         if (!content) return;
 
-        TdLibController.send({
+        return TdLibController.send({
             '@type': 'editMessageMedia',
             chat_id: chatId,
             message_id: editMessageId,
@@ -1372,9 +1383,33 @@ class InputBox extends Component {
         this.closeEditMediaDialog();
     };
 
-    handleEditMedia = (caption, content) => {
+    handleEditMedia = async (caption, content) => {
         if (content) {
-            this.editMessageMedia(content);
+            const message = await this.editMessageMedia(content);
+            if (message) {
+                const { content: editContent } = message;
+                switch (editContent['@type']) {
+                    case 'messagePhoto': {
+                        const { photo: sendPhoto } = content;
+                        if (!sendPhoto) break;
+
+                        const { data: blob } = sendPhoto;
+                        if (!blob) break;
+
+                        const { photo } = editContent;
+                        if (!photo) break;
+
+                        const iSize = photo.sizes.find(x => x.type === 'i');
+                        if (!iSize) break;
+
+                        const { photo: file } = iSize;
+                        if (file) {
+                            FileStore.setBlob(file.id, blob);
+                        }
+                        break;
+                    }
+                }
+            }
             return;
         }
 
@@ -1425,7 +1460,6 @@ class InputBox extends Component {
     };
 
     handleStopRecord = (cancelled = false) => {
-        console.log('[recorder] stop', this.recorder, cancelled);
         if (!this.recorder) return;
 
         this.recorder.cancelled = cancelled;
@@ -1438,14 +1472,11 @@ class InputBox extends Component {
     }
 
     handleRecord = async () => {
-        console.log('[recorder] handleRecord', this.recorder);
         if (this.recorder) return;
 
         let stream = null;
         try{
-            console.log('[recorder] stream start', this.recorder);
             stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            console.log('[recorder] stream ready', this.recorder);
             if (this.recorder) return;
         } catch { }
 
@@ -1480,14 +1511,13 @@ class InputBox extends Component {
             chunks.push(e.data);
         };
         recorder.onstart = () => {
-            console.log('[recorder] onstart', this.recorder);
+
         };
         recorder.onstop = () => {
             TdLibController.clientUpdate({ '@type': 'clientUpdateRecordStop' });
             this.setState({ recordingTime: null });
 
             const { cancelled } = this.recorder;
-            console.log('[recorder] onstop', this.recorder, cancelled);
             this.recorder = null;
 
             this.loadDraft();
@@ -1524,7 +1554,6 @@ class InputBox extends Component {
         this.recorder.start(50);
         this.startTime = new Date();
 
-        console.log('[recorder] start', this.recorder);
         TdLibController.clientUpdate({ '@type': 'clientUpdateRecordStart' });
         this.setState({ recordingTime: new Date() });
     }
@@ -1584,6 +1613,7 @@ class InputBox extends Component {
                             <div className='inputbox-middle-column'>
                                 <div
                                     id='inputbox-message'
+                                    className='scrollbars-hidden'
                                     ref={this.newMessageRef}
                                     placeholder={isMediaEditing ? t('Caption') : t('Message')}
                                     contentEditable
