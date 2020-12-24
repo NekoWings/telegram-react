@@ -8,12 +8,11 @@
 import React, { Component } from 'react';
 import PropTypes from 'prop-types';
 import classNames from 'classnames';
-import { compose } from '../../Utils/HOC';
 import { withTranslation } from 'react-i18next';
-import { withRestoreRef, withSaveRef } from '../../Utils/HOC';
 import CheckMarkIcon from '@material-ui/icons/Check';
 import DayMeta from './DayMeta';
 import Reply from './Reply';
+import ReplyMarkup from './Markup/ReplyMarkup';
 import Forward from './Forward';
 import Meta from './Meta';
 import MessageAuthor from './MessageAuthor';
@@ -23,6 +22,7 @@ import ChatTile from '../Tile/ChatTile';
 import EmptyTile from '../Tile/EmptyTile';
 import UnreadSeparator from './UnreadSeparator';
 import WebPage from './Media/WebPage';
+import { startMessageEditing, stopMessageEditing } from '../../Actions/Message';
 import {
     getEmojiMatches,
     getText,
@@ -31,10 +31,11 @@ import {
     showMessageForward,
     isMetaBubble,
     canMessageBeForwarded,
-    getMessageStyle
+    getMessageStyle,
+    isEmptySelection
 } from '../../Utils/Message';
 import { getMedia } from '../../Utils/Media';
-import { canSendMessages, isChannelChat, isPrivateChat } from '../../Utils/Chat';
+import { canSendMessages, isChannelChat, isGroupChat, isMeChat, isPrivateChat } from '../../Utils/Chat';
 import {
     openUser,
     openChat,
@@ -134,6 +135,7 @@ class Message extends Component {
         MessageStore.on('clientUpdateMessageShake', this.onClientUpdateMessageShake);
         MessageStore.on('clientUpdateClearSelection', this.onClientUpdateClearSelection);
         MessageStore.on('updateMessageContent', this.onUpdateMessageContent);
+        MessageStore.on('updateMessageEdited', this.onUpdateMessageEdited);
     }
 
     componentWillUnmount() {
@@ -142,6 +144,7 @@ class Message extends Component {
         MessageStore.off('clientUpdateMessageShake', this.onClientUpdateMessageShake);
         MessageStore.off('clientUpdateClearSelection', this.onClientUpdateClearSelection);
         MessageStore.off('updateMessageContent', this.onUpdateMessageContent);
+        MessageStore.off('updateMessageEdited', this.onUpdateMessageEdited);
     }
 
     onClientUpdateClearSelection = update => {
@@ -200,17 +203,50 @@ class Message extends Component {
     onUpdateMessageContent = update => {
         const { chat_id, message_id } = update;
         const { chatId, messageId } = this.props;
-        const { emojiMatches } = this.state;
 
         if (chatId !== chat_id) return;
         if (messageId !== message_id) return;
 
-        const newEmojiMatches = getEmojiMatches(chatId, messageId);
-        if (newEmojiMatches !== emojiMatches) {
-            this.setState({ emojiMatches: getEmojiMatches(chatId, messageId) });
-        } else {
-            this.forceUpdate();
+        this.updateMessageContent = update;
+        setTimeout(this.handleUpdateMessageContentAndEditedOnce, 50);
+    };
+
+    onUpdateMessageEdited = update => {
+        const { chat_id, message_id } = update;
+        const { chatId, messageId } = this.props;
+
+        if (chatId !== chat_id) return;
+        if (messageId !== message_id) return;
+
+        this.updateMessageEdited = update;
+        setTimeout(this.handleUpdateMessageContentAndEditedOnce, 50);
+    };
+
+    handleUpdateMessageContentAndEditedOnce = () => {
+        const { updateMessageContent, updateMessageEdited } = this;
+        this.updateMessageContent = null;
+        this.updateMessageEdited = null;
+
+        if (!updateMessageContent && !updateMessageEdited) return;
+
+        const { chatId, messageId } = this.props;
+
+        let handled = false;
+        if (updateMessageContent) {
+            const { emojiMatches } = this.state;
+            const newEmojiMatches = getEmojiMatches(chatId, messageId);
+            if (newEmojiMatches !== emojiMatches) {
+                handled = true;
+                this.setState({ emojiMatches: newEmojiMatches });
+            }
         }
+
+        if (handled) return;
+
+        startMessageEditing(chatId, messageId);
+        this.forceUpdate(() => {
+            stopMessageEditing(chatId, messageId);
+        });
     };
 
     handleSelectUser = userId => {
@@ -225,7 +261,9 @@ class Message extends Component {
         if (!this.mouseDown) return;
 
         const selection = window.getSelection().toString();
-        if (selection) return;
+        if (!isEmptySelection(selection)) {
+            return;
+        }
 
         const { chatId, messageId } = this.props;
 
@@ -323,7 +361,7 @@ class Message extends Component {
 
     render() {
         let { showTail } = this.props;
-        const { t, chatId, messageId, showUnreadSeparator, showTitle, showDate } = this.props;
+        const { t, chatId, messageId, showUnreadSeparator, showTitle, showDate, source } = this.props;
         const {
             emojiMatches,
             selected,
@@ -340,7 +378,7 @@ class Message extends Component {
         const message = MessageStore.get(chatId, messageId);
         if (!message) return <div>[empty message]</div>;
 
-        const { content, is_outgoing, views, date, edit_date, reply_to_message_id, forward_info, sender_user_id } = message;
+        const { content, is_outgoing, date, reply_to_message_id, forward_info, sender, reply_markup } = message;
 
         const isOutgoing = is_outgoing && !isChannelChat(chatId);
         const inlineMeta = (
@@ -349,9 +387,6 @@ class Message extends Component {
                 key={`${chatId}_${messageId}_meta`}
                 chatId={chatId}
                 messageId={messageId}
-                date={date}
-                editDate={edit_date}
-                views={views}
             />
         );
         const meta = (
@@ -361,19 +396,16 @@ class Message extends Component {
                 })}
                 chatId={chatId}
                 messageId={messageId}
-                date={date}
-                editDate={edit_date}
-                views={views}
                 onDateClick={this.handleDateClick}
             />
         );
 
         const webPage = getWebPage(message);
-        const text = getText(message, !!webPage ? null : inlineMeta, t);
+        const text = getText(message, !!webPage ? null : inlineMeta, t, { chatId, messageId });
         const hasCaption = text !== null && text.length > 0;
         const showForward = showMessageForward(chatId, messageId);
         const showReply = Boolean(reply_to_message_id);
-        const suppressTitle = isPrivateChat(chatId);
+        const suppressTitle = isPrivateChat(chatId) && !(isMeChat(chatId) && !isOutgoing) || (isGroupChat(chatId) && isOutgoing);
         const hasTitle = (!suppressTitle && showTitle) || showForward || showReply;
         const media = getMedia(message, this.openMedia, { hasTitle, hasCaption, inlineMeta, meta });
         const isChannel = isChannelChat(chatId);
@@ -385,22 +417,42 @@ class Message extends Component {
 
         let tile = null;
         if (showTail) {
-            if (isPrivate) {
+            if (isMeChat(chatId) && forward_info) {
+                switch (forward_info.origin['@type']) {
+                    case 'messageForwardOriginHiddenUser': {
+                        tile = <UserTile small firstName={forward_info.origin.sender_name} onSelect={this.handleSelectUser} />;
+                        break;
+                    }
+                    case 'messageForwardOriginUser': {
+                        tile = <UserTile small userId={forward_info.origin.sender_user_id} onSelect={this.handleSelectUser} />;
+                        break;
+                    }
+                    case 'messageForwardOriginChannel': {
+                        tile = <ChatTile small chatId={forward_info.origin.chat_id} onSelect={this.handleSelectChat} />;
+                        break;
+                    }
+                }
+            } else if (isPrivate) {
                 tile = <EmptyTile small />
             } else if (isChannel) {
                 tile = <EmptyTile small />
             } else if (is_outgoing) {
                 tile = <EmptyTile small />
-            } else if (sender_user_id) {
-                tile = <UserTile small userId={sender_user_id} onSelect={this.handleSelectUser} />
+            } else if (sender.user_id) {
+                tile = <UserTile small userId={sender.user_id} onSelect={this.handleSelectUser} />;
             } else {
-                tile = <ChatTile small chatId={chatId} onSelect={this.handleSelectChat} />
+                tile = <ChatTile small chatId={chatId} onSelect={this.handleSelectChat} />;
             }
         }
 
         const style = getMessageStyle(chatId, messageId);
         const withBubble = content['@type'] !== 'messageSticker' && content['@type'] !== 'messageVideoNote';
-        const tailRounded = !hasCaption && (content['@type'] === 'messageAnimation' || content['@type'] === 'messageVideo' || content['@type'] === 'messagePhoto');
+        const tailRounded =
+            !hasCaption  && (
+                content['@type'] === 'messageAnimation' ||
+                content['@type'] === 'messageVideo' ||
+                content['@type'] === 'messagePhoto' ||
+                content['@type'] === 'messageInvoice' && content.photo) || reply_markup && reply_markup['@type'] === 'replyMarkupInlineKeyboard';
 
         // console.log('[p] m.render id=' + message.id);
 
@@ -446,45 +498,54 @@ class Message extends Component {
                         </div>
                         <div className={classNames('message-wrapper', { 'shook': shook })}>
                             {tile}
-                            <div
-                                className={classNames('message-content', {
-                                    'message-bubble': withBubble,
-                                    'message-bubble-out': withBubble && isOutgoing
-                                })}
-                                style={style}>
-                                {withBubble && ((showTitle && !suppressTitle) || showForward) && (
-                                    <div className='message-title'>
-                                        {showTitle && !showForward && (
-                                            <MessageAuthor chatId={chatId} openChat userId={sender_user_id} openUser />
-                                        )}
-                                        {showForward && <Forward forwardInfo={forward_info} />}
-                                    </div>
-                                )}
-                                {showReply && (
-                                    <Reply
-                                        chatId={chatId}
-                                        messageId={reply_to_message_id}
-                                        onClick={this.handleReplyClick}
-                                    />
-                                )}
-                                {media}
+                            <div>
                                 <div
-                                    className={classNames('message-text', {
-                                        'message-text-1emoji': emojiMatches === 1,
-                                        'message-text-2emoji': emojiMatches === 2,
-                                        'message-text-3emoji': emojiMatches === 3
-                                    })}>
-                                    {text}
+                                    className={classNames('message-content', {
+                                        'message-bubble': withBubble,
+                                        'message-bubble-out': withBubble && isOutgoing
+                                    })}
+                                    style={style}>
+                                    {withBubble && ((showTitle && !suppressTitle) || showForward) && (
+                                        <div className='message-title'>
+                                            {showTitle && !showForward && (
+                                                <MessageAuthor sender={sender} forwardInfo={forward_info} openChat openUser/>
+                                            )}
+                                            {showForward && <Forward forwardInfo={forward_info} />}
+                                        </div>
+                                    )}
+                                    {showReply && (
+                                        <Reply
+                                            chatId={chatId}
+                                            messageId={reply_to_message_id}
+                                            onClick={this.handleReplyClick}
+                                        />
+                                    )}
+                                    {media}
+                                    <div
+                                        className={classNames('message-text', {
+                                            'message-text-1emoji': emojiMatches === 1,
+                                            'message-text-2emoji': emojiMatches === 2,
+                                            'message-text-3emoji': emojiMatches === 3
+                                        })}>
+                                        {text}
+                                    </div>
+                                    {webPage && (
+                                        <WebPage
+                                            chatId={chatId}
+                                            messageId={messageId}
+                                            openMedia={this.openMedia}
+                                            meta={inlineMeta}
+                                        />
+                                    )}
+                                    {withBubble && meta}
                                 </div>
-                                {webPage && (
-                                    <WebPage
+                                {reply_markup && (
+                                    <ReplyMarkup
                                         chatId={chatId}
                                         messageId={messageId}
-                                        openMedia={this.openMedia}
-                                        meta={inlineMeta}
+                                        markup={reply_markup}
                                     />
                                 )}
-                                {withBubble && meta}
                             </div>
                             <div className='message-tile-padding' />
                         </div>
@@ -498,6 +559,7 @@ class Message extends Component {
                     open={contextMenu}
                     onClose={this.handleCloseContextMenu}
                     copyLink={copyLink}
+                    source={source}
                 />
             </div>
         );

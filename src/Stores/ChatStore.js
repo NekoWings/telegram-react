@@ -162,6 +162,17 @@ class ChatStore extends EventEmitter {
                 this.emitFastUpdate(update);
                 break;
             }
+            case 'updateChatIsBlocked': {
+                const { chat_id, is_blocked } = update;
+
+                const chat = this.get(chat_id);
+                if (chat) {
+                    this.assign(chat, { is_blocked });
+                }
+
+                this.emitFastUpdate(update);
+                break;
+            }
             case 'updateChatIsMarkedAsUnread': {
                 const { chat_id, is_marked_as_unread } = update;
 
@@ -179,7 +190,8 @@ class ChatStore extends EventEmitter {
                 const chat = this.get(chat_id);
                 if (chat) {
                     this.assign(chat, {
-                        positions: !positions.length ? chat.positions : positions,
+                        positions, // leave channel
+                        // positions: !positions.length ? chat.positions : positions,
                         last_message,
                     });
                 }
@@ -224,17 +236,6 @@ class ChatStore extends EventEmitter {
                             break;
                         }
                     }
-                }
-
-                this.emitFastUpdate(update);
-                break;
-            }
-            case 'updateChatPinnedMessage': {
-                const { chat_id, pinned_message_id } = update;
-
-                const chat = this.get(chat_id);
-                if (chat) {
-                    this.assign(chat, { pinned_message_id });
                 }
 
                 this.emitFastUpdate(update);
@@ -368,7 +369,23 @@ class ChatStore extends EventEmitter {
                 this.emitUpdate(update);
                 break;
             }
+            case 'clientUpdateHintsClose': {
+                this.emitUpdate(update);
+                break;
+            }
+            case 'clientUpdateHintsGlobal': {
+                this.emitUpdate(update);
+                break;
+            }
+            case 'clientUpdateHintsLocal': {
+                this.emitUpdate(update);
+                break;
+            }
             case 'clientUpdateClearHistory': {
+                this.emitUpdate(update);
+                break;
+            }
+            case 'clientUpdateClearOpenChatOptions': {
                 this.emitUpdate(update);
                 break;
             }
@@ -411,10 +428,6 @@ class ChatStore extends EventEmitter {
                 this.setClientData(chatId, clientData);
                 this.saveClientData();
 
-                this.emitUpdate(update);
-                break;
-            }
-            case 'clientUpdateUnpin': {
                 this.emitUpdate(update);
                 break;
             }

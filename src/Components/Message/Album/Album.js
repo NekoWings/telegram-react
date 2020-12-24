@@ -7,35 +7,33 @@
 
 import React from 'react';
 import PropTypes from 'prop-types';
+import classNames from 'classnames';
+import CheckMarkIcon from '@material-ui/icons/Check';
 import AlbumItem from './AlbumItem';
+import DayMeta from '../DayMeta';
+import Forward from '../Forward';
 import GroupedMessages from './GroupedMessages';
+import UnreadSeparator from '../UnreadSeparator';
+import MessageAuthor from '../MessageAuthor';
+import Reply from '../Reply';
+import Meta from '../Meta';
+import ChatTile from '../../Tile/ChatTile';
+import EmptyTile from '../../Tile/EmptyTile';
+import UserTile from '../../Tile/UserTile';
 import { albumHistoryEquals } from '../../../Utils/Common';
+import { selectMessage } from '../../../Actions/Client';
+import { getText, getWebPage, isEmptySelection, showMessageForward } from '../../../Utils/Message';
+import { isChannelChat, isMeChat, isPrivateChat } from '../../../Utils/Chat';
 import { PHOTO_DISPLAY_SIZE } from '../../../Constants';
 import MessageStore from '../../../Stores/MessageStore';
 import './Album.css';
-import DayMeta from '../DayMeta';
-import classNames from 'classnames';
-import UnreadSeparator from '../UnreadSeparator';
-import CheckMarkIcon from '@material-ui/icons/Check';
-import MessageAuthor from '../MessageAuthor';
-import Forward from '../Forward';
-import Reply from '../Reply';
-import WebPage from '../Media/WebPage';
-import MessageMenu from '../MessageMenu';
-import { isChannelChat, isPrivateChat } from '../../../Utils/Chat';
-import Meta from '../Meta';
-import { getEmojiMatches, getMessageStyle, getText, getWebPage, isMetaBubble, showMessageForward } from '../../../Utils/Message';
-import { getMedia } from '../../../Utils/Media';
-import EmptyTile from '../../Tile/EmptyTile';
-import UserTile from '../../Tile/UserTile';
-import ChatTile from '../../Tile/ChatTile';
-import { selectMessage } from '../../../Actions/Client';
 
 class Album extends React.Component {
     state = { };
 
     shouldComponentUpdate(nextProps, nextState, nextContext) {
-        const { messageIds, emojiMatches, selected } = this.props;
+        const { messageIds } = this.props;
+        const { emojiMatches, selected, highlighted } = this.state;
 
         if (!albumHistoryEquals(nextProps.messageIds, messageIds)) {
             return true;
@@ -46,6 +44,10 @@ class Album extends React.Component {
         }
 
         if (nextState.selected !== selected) {
+            return true;
+        }
+
+        if (nextState.highlighted !== highlighted) {
             return true;
         }
 
@@ -69,7 +71,7 @@ class Album extends React.Component {
     }
 
     componentDidMount() {
-        // MessageStore.on('clientUpdateMessageHighlighted', this.onClientUpdateMessageHighlighted);
+        MessageStore.on('clientUpdateMessageHighlighted', this.onClientUpdateMessageHighlighted);
         MessageStore.on('clientUpdateMessageSelected', this.onClientUpdateMessageSelected);
         // MessageStore.on('clientUpdateMessageShake', this.onClientUpdateMessageShake);
         MessageStore.on('clientUpdateClearSelection', this.onClientUpdateClearSelection);
@@ -77,12 +79,33 @@ class Album extends React.Component {
     }
 
     componentWillUnmount() {
-        // MessageStore.off('clientUpdateMessageHighlighted', this.onClientUpdateMessageHighlighted);
+        MessageStore.off('clientUpdateMessageHighlighted', this.onClientUpdateMessageHighlighted);
         MessageStore.off('clientUpdateMessageSelected', this.onClientUpdateMessageSelected);
         // MessageStore.off('clientUpdateMessageShake', this.onClientUpdateMessageShake);
         MessageStore.off('clientUpdateClearSelection', this.onClientUpdateClearSelection);
         MessageStore.off('updateMessageContent', this.onUpdateMessageContent);
     }
+
+    onClientUpdateMessageHighlighted = update => {
+        const { chatId, messageIds } = this.props;
+        const { selected, highlighted } = this.state;
+
+        if (selected) return;
+
+        if (chatId === update.chatId && messageIds.some(x => x === update.messageId)) {
+            if (highlighted) {
+                this.setState({ highlighted: false, lastHighlighted: false }, () => {
+                    setTimeout(() => {
+                        this.setState({ highlighted: true, lastHighlighted: messageIds.length > 0 && messageIds[messageIds.length - 1] === update.messageId });
+                    }, 0);
+                });
+            } else {
+                this.setState({ highlighted: true, lastHighlighted: messageIds.length > 0 && messageIds[messageIds.length - 1] === update.messageId });
+            }
+        } else if (highlighted) {
+            this.setState({ highlighted: false, lastHighlighted: false });
+        }
+    };
 
     onClientUpdateMessageSelected = update => {
         const { chatId, messageIds } = this.props;
@@ -122,7 +145,9 @@ class Album extends React.Component {
         // if (!this.mouseDown) return;
 
         const selection = window.getSelection().toString();
-        if (selection) return;
+        if (!isEmptySelection(selection)) {
+            return;
+        }
 
         const { chatId, messageIds } = this.props;
         const { selected } = this.state;
@@ -139,7 +164,7 @@ class Album extends React.Component {
     };
 
     render() {
-        let { showTail } = this.props;
+        let { showTail, source } = this.props;
         const { chatId, messageIds, displaySize, showUnreadSeparator, showTitle, showDate, t = x => x } = this.props;
         const {
             emojiMatches,
@@ -164,7 +189,7 @@ class Album extends React.Component {
         const message = MessageStore.get(chatId, messageId);
         if (!message) return <div>[empty message]</div>;
 
-        const { content, is_outgoing, views, date, edit_date, reply_to_message_id, forward_info, sender_user_id } = message;
+        const { content, is_outgoing, date, reply_to_message_id, forward_info, sender } = message;
 
         const isOutgoing = is_outgoing && !isChannelChat(chatId);
 
@@ -173,10 +198,7 @@ class Album extends React.Component {
                 className='meta-hidden'
                 key={`${chatId}_${messageId}_meta`}
                 chatId={chatId}
-                messageId={messageId}
-                date={date}
-                editDate={edit_date}
-                views={views}
+                messageIds={messageIds}
             />
         );
         const webPage = getWebPage(message);
@@ -201,17 +223,14 @@ class Album extends React.Component {
                     'meta-bubble': !hasCaption
                 })}
                 chatId={chatId}
-                messageId={messageId}
-                date={date}
-                editDate={edit_date}
-                views={views}
+                messageIds={messageIds}
                 onDateClick={this.handleDateClick}
             />
         );
 
         const showForward = showMessageForward(chatId, messageId);
         const showReply = Boolean(reply_to_message_id);
-        const suppressTitle = isPrivateChat(chatId);
+        const suppressTitle = isPrivateChat(chatId) && !(isMeChat(chatId) && !isOutgoing);
         const hasTitle = (!suppressTitle && showTitle) || showForward || showReply;
         // const media = getMedia(message, this.openMedia, { hasTitle, hasCaption, inlineMeta, meta });
         const isChannel = isChannelChat(chatId);
@@ -223,16 +242,31 @@ class Album extends React.Component {
 
         let tile = null;
         if (showTail) {
-            if (isPrivate) {
+            if (isMeChat(chatId) && forward_info) {
+                switch (forward_info.origin['@type']) {
+                    case 'messageForwardOriginHiddenUser': {
+                        tile = <UserTile small firstName={forward_info.origin.sender_name} onSelect={this.handleSelectUser} />;
+                        break;
+                    }
+                    case 'messageForwardOriginUser': {
+                        tile = <UserTile small userId={forward_info.origin.sender_user_id} onSelect={this.handleSelectUser} />;
+                        break;
+                    }
+                    case 'messageForwardOriginChannel': {
+                        tile = <ChatTile small chatId={forward_info.origin.chat_id} onSelect={this.handleSelectChat} />;
+                        break;
+                    }
+                }
+            } else if (isPrivate) {
                 tile = <EmptyTile small />
             } else if (isChannel) {
                 tile = <EmptyTile small />
             } else if (is_outgoing) {
                 tile = <EmptyTile small />
-            } else if (sender_user_id) {
-                tile = <UserTile small userId={sender_user_id} onSelect={this.handleSelectUser} />
+            } else if (sender.user_id) {
+                tile = <UserTile small userId={sender.user_id} onSelect={this.handleSelectUser} />;
             } else {
-                tile = <ChatTile small chatId={chatId} onSelect={this.handleSelectChat} />
+                tile = <ChatTile small chatId={chatId} onSelect={this.handleSelectChat} />;
             }
         }
 
@@ -246,6 +280,7 @@ class Album extends React.Component {
                 message={x}
                 position={grouped.positions.get(x)}
                 displaySize={displaySize}
+                source={source}
             />));
 
         return (
@@ -257,7 +292,7 @@ class Album extends React.Component {
                         'message-short': !tile,
                         'message-out': isOutgoing,
                         'message-selected': selected,
-                        'message-highlighted': highlighted && !selected,
+                        // 'message-highlighted': highlighted && !selected,
                         'message-group-title': showTitle && !showTail,
                         'message-group': !showTitle && !showTail,
                         'message-group-tail': !showTitle && showTail && !tailRounded,
@@ -287,7 +322,7 @@ class Album extends React.Component {
                                 {withBubble && ((showTitle && !suppressTitle) || showForward) && (
                                     <div className='message-title'>
                                         {showTitle && !showForward && (
-                                            <MessageAuthor chatId={chatId} openChat userId={sender_user_id} openUser />
+                                            <MessageAuthor sender={sender} forwardInfo={forward_info} openChat openUser />
                                         )}
                                         {showForward && <Forward forwardInfo={forward_info} />}
                                     </div>

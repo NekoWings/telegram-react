@@ -9,6 +9,22 @@ import { isChatMuted, isChatPinned } from '../Utils/Chat';
 import { MUTED_VALUE_MAX, MUTED_VALUE_MIN } from '../Constants';
 import ChatStore from '../Stores/ChatStore';
 
+export function openChatList(chatList) {
+    TdLibController.clientUpdate({
+        '@type': 'clientUpdateChatList',
+        chatList
+    });
+}
+
+export function reportChat(chatId, reason, messageids = []) {
+    TdLibController.send({
+        '@type': 'reportChat',
+        chat_id: chatId,
+        reason,
+        message_ids: messageids
+    });
+}
+
 export function clearHistory(chatId) {
     TdLibController.clientUpdate({
         '@type': 'clientUpdateRequestClearHistory',

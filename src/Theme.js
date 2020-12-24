@@ -34,7 +34,8 @@ function updateLightTheme(theme) {
     style.setProperty('--z-index-modal', theme.zIndex.modal);
 
     style.setProperty('--color-accent-main', theme.palette.primary.main);
-    style.setProperty('--color-accent-main22', theme.palette.primary.main + '44');
+    style.setProperty('--color-accent-main44', theme.palette.primary.main + '44');
+    style.setProperty('--color-accent-main88', theme.palette.primary.main + '88');
     style.setProperty('--color-accent-dark', theme.palette.primary.dark);
     style.setProperty('--color-accent-light', theme.palette.primary.light);
     style.setProperty('--color-grey700', theme.palette.grey[700]);
@@ -52,6 +53,9 @@ function updateLightTheme(theme) {
     style.setProperty('--badge-item-selected', getBadgeSelectedColor(theme.palette.primary.main));
 
     style.setProperty('--online-indicator', '#0AC630');
+
+    style.setProperty('--message-keyboard-button', '#00000033');
+    style.setProperty('--message-keyboard-button-hover', '#00000022');
 
     style.setProperty('--message-service-color', '#FFFFFF');
     style.setProperty('--message-service-background', '#00000033');
@@ -118,7 +122,8 @@ function updateDarkTheme(theme) {
     style.setProperty('--z-index-modal', theme.zIndex.modal);
 
     style.setProperty('--color-accent-main', theme.palette.primary.main);
-    style.setProperty('--color-accent-main22', theme.palette.primary.main + '44');
+    style.setProperty('--color-accent-main44', theme.palette.primary.main + '44');
+    style.setProperty('--color-accent-main88', theme.palette.primary.main + '88');
     style.setProperty('--color-accent-dark', theme.palette.primary.dark);
     style.setProperty('--color-accent-light', theme.palette.primary.light);
     style.setProperty('--color-grey700', theme.palette.grey[700]);
@@ -136,6 +141,9 @@ function updateDarkTheme(theme) {
     style.setProperty('--badge-item-selected', getBadgeSelectedColor(theme.palette.primary.main));
 
     style.setProperty('--online-indicator', '#0AC630');
+
+    style.setProperty('--message-keyboard-button', '#424242');
+    style.setProperty('--message-keyboard-button-hover', '#42424288');
 
     style.setProperty('--message-service-color', '#FFFFFF');
     style.setProperty('--message-service-background', '#303030');
@@ -285,7 +293,16 @@ function createTheme(type, primary) {
                     paddingBottom: 10
                 }
             },
-            MuiTouchRipple
+            MuiTouchRipple,
+            MuiSnackbarContent: {
+                root: {
+                    flexWrap: 'nowrap',
+                    fontSize: 'inherit'
+                },
+                message: {
+                    maxWidth: 512
+                }
+            }
         }
     });
 

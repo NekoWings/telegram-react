@@ -19,8 +19,9 @@ import ArrowBackIcon from '../../../Assets/Icons/Back';
 import SectionHeader from '../SectionHeader';
 import User from '../../Tile/User';
 import UnblockIcon from '../../../Assets/Icons/Unblock';
-import { loadUsersContent } from '../../../Utils/File';
+import { loadChatsContent, loadUsersContent } from '../../../Utils/File';
 import { openUser } from '../../../Actions/Client';
+import { unblockSender } from '../../../Actions/Message';
 import FileStore from '../../../Stores/FileStore';
 import TdLibController from '../../../Controllers/TdLibController';
 import './BlockedUsers.css';
@@ -112,14 +113,12 @@ class BlockedUsers extends React.Component {
 
         const store = FileStore.getStore();
 
-        loadUsersContent(store, users.user_ids);
+        loadUsersContent(store, users.senders.filter(x => x['@type'] === 'messageSenderUser').map(x => x.user_id));
+        loadChatsContent(store, users.senders.filter(x => x['@type'] === 'messageSenderChat').map(x => x.chat_id));
     }
 
-    handleUnblock = async userId => {
-        await TdLibController.send({
-           '@type': 'unblockUser',
-            user_id: userId
-        });
+    handleUnblockUser = async userId => {
+        unblockSender({ '@type': 'messageSenderUser', user_id: userId });
     };
 
     render() {
@@ -137,11 +136,11 @@ class BlockedUsers extends React.Component {
                 </div>
                 <div className='sidebar-page-content'>
                     <div className='sidebar-page-section'>
-                        { users.user_ids.length > 0 ? (
+                        { users.senders.length > 0 ? (
                             <>
                                 <SectionHeader multiline>{t('BlockedUsersInfo')}</SectionHeader>
                                 {
-                                    users.user_ids.map(x => <BlockedUser key={x} userId={x} onClick={openUser} onUnblock={this.handleUnblock}/>)
+                                    users.senders.filter(x => x['@type'] === 'messageSenderUser').map(x => <BlockedUser key={x.user_id} userId={x.user_id} onClick={openUser} onUnblock={this.handleUnblockUser}/>)
                                 }
                             </>
                         ) : (

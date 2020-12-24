@@ -164,7 +164,7 @@ class TdLibController extends EventEmitter {
     send = request => {
         if (!this.client) {
             console.log('send (none init)', request);
-            return;
+            return Promise.reject('tdweb client is not ready yet');
         }
 
         if (!this.disableLog) {
@@ -250,11 +250,12 @@ class TdLibController extends EventEmitter {
         });
     }
 
-    setChatId = (chatId, messageId = null) => {
+    setChatId = (chatId, messageId = null, options = { }) => {
         const update = {
             '@type': 'clientUpdateChatId',
             chatId,
-            messageId
+            messageId,
+            options
         };
 
         this.clientUpdate(update);
